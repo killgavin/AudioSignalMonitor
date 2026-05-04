@@ -11,6 +11,8 @@ partial class Form1
     private Button startButton;
     private Button stopButton;
     private Label statusLabel;
+    private Label peakLabel;
+    private Label rmsLabel;
     private BufferedPanel waveformPanel;
     private System.Windows.Forms.Timer uiTimer;
 
@@ -39,6 +41,8 @@ partial class Form1
         this.startButton = new System.Windows.Forms.Button();
         this.stopButton = new System.Windows.Forms.Button();
         this.statusLabel = new System.Windows.Forms.Label();
+        this.peakLabel = new System.Windows.Forms.Label();
+        this.rmsLabel = new System.Windows.Forms.Label();
         this.waveformPanel = new AudioSignalMonitor.BufferedPanel();
         this.uiTimer = new System.Windows.Forms.Timer(this.components);
         this.SuspendLayout();
@@ -76,11 +80,29 @@ partial class Form1
         // statusLabel
         // 
         this.statusLabel.AutoSize = true;
-        this.statusLabel.Location = new System.Drawing.Point(556, 15);
+        this.statusLabel.Location = new System.Drawing.Point(548, 15);
         this.statusLabel.Name = "statusLabel";
-        this.statusLabel.Size = new System.Drawing.Size(101, 15);
+        this.statusLabel.Size = new System.Drawing.Size(63, 15);
         this.statusLabel.TabIndex = 3;
-        this.statusLabel.Text = "訊號：未知";
+        this.statusLabel.Text = "狀態：未知";
+        // 
+        // peakLabel
+        // 
+        this.peakLabel.AutoSize = true;
+        this.peakLabel.Location = new System.Drawing.Point(640, 15);
+        this.peakLabel.Name = "peakLabel";
+        this.peakLabel.Size = new System.Drawing.Size(108, 15);
+        this.peakLabel.TabIndex = 4;
+        this.peakLabel.Text = "Peak：-120.0 dBFS";
+        // 
+        // rmsLabel
+        // 
+        this.rmsLabel.AutoSize = true;
+        this.rmsLabel.Location = new System.Drawing.Point(772, 15);
+        this.rmsLabel.Name = "rmsLabel";
+        this.rmsLabel.Size = new System.Drawing.Size(106, 15);
+        this.rmsLabel.TabIndex = 5;
+        this.rmsLabel.Text = "RMS：-120.0 dBFS";
         // 
         // waveformPanel
         // 
@@ -91,7 +113,7 @@ partial class Form1
         this.waveformPanel.Location = new System.Drawing.Point(12, 48);
         this.waveformPanel.Name = "waveformPanel";
         this.waveformPanel.Size = new System.Drawing.Size(876, 390);
-        this.waveformPanel.TabIndex = 4;
+        this.waveformPanel.TabIndex = 6;
         this.waveformPanel.Paint += new System.Windows.Forms.PaintEventHandler(this.WaveformPanel_Paint);
         // 
         // uiTimer
@@ -101,6 +123,8 @@ partial class Form1
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         this.ClientSize = new System.Drawing.Size(900, 450);
         this.Controls.Add(this.waveformPanel);
+        this.Controls.Add(this.rmsLabel);
+        this.Controls.Add(this.peakLabel);
         this.Controls.Add(this.statusLabel);
         this.Controls.Add(this.stopButton);
         this.Controls.Add(this.startButton);

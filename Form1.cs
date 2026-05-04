@@ -14,12 +14,23 @@ public partial class Form1 : Form
     private const int BitsPerSample = 16;
     private const int Channels = 1;
     private const int RingBufferSamples = 16384;
-    private const int SignalThreshold = 800;
+    private const float MinDbfs = -120f;
+    private const float ClippingPeakDbfs = -1.0f;
+    private const float TooQuietRmsDbfs = -35.0f;
 
     private readonly SampleRingBuffer ringBuffer = new(RingBufferSamples);
     private readonly short[] drawBuffer = new short[RingBufferSamples];
     private WaveInEvent? waveIn;
-    private int lastPeak;
+    private float lastPeakDbfs = MinDbfs;
+    private float lastRmsDbfs = MinDbfs;
+    private int lastQuality = (int)RecordingQuality.TooQuiet;
+
+    private enum RecordingQuality
+    {
+        TooQuiet,
+        Optimal,
+        ClippingRisk
+    }
 
     /// <summary>
     /// 初始化表單並將建構子內的工作量控制在最低，
@@ -71,7 +82,7 @@ public partial class Form1 : Form
     /// </summary>
     private void UiTimer_Tick(object sender, EventArgs e)
     {
-        UpdateSignalIndicator();
+        UpdateLevelIndicator();
         waveformPanel.Invalidate();
     }
 
@@ -99,7 +110,7 @@ public partial class Form1 : Form
             deviceComboBox.Items.Add("找不到輸入裝置");
             deviceComboBox.SelectedIndex = 0;
             startButton.Enabled = false;
-            statusLabel.Text = "訊號：無裝置";
+            statusLabel.Text = "狀態：無裝置";
             return;
         }
 
@@ -111,7 +122,9 @@ public partial class Form1 : Form
 
         deviceComboBox.SelectedIndex = 0;
         startButton.Enabled = true;
-        statusLabel.Text = "訊號：待命";
+        statusLabel.Text = "狀態：待命";
+        peakLabel.Text = $"Peak：{MinDbfs:F1} dBFS";
+        rmsLabel.Text = $"RMS：{MinDbfs:F1} dBFS";
     }
 
     /// <summary>
@@ -142,7 +155,9 @@ public partial class Form1 : Form
         waveIn.RecordingStopped += OnRecordingStopped;
 
         ringBuffer.Clear();
-        lastPeak = 0;
+        Volatile.Write(ref lastPeakDbfs, MinDbfs);
+        Volatile.Write(ref lastRmsDbfs, MinDbfs);
+        Volatile.Write(ref lastQuality, (int)RecordingQuality.TooQuiet);
 
         waveIn.StartRecording();
         uiTimer.Start();
@@ -150,7 +165,7 @@ public partial class Form1 : Form
         startButton.Enabled = false;
         stopButton.Enabled = true;
         deviceComboBox.Enabled = false;
-        statusLabel.Text = "訊號：監測中";
+        statusLabel.Text = "狀態：監測中";
     }
 
     /// <summary>
@@ -176,7 +191,7 @@ public partial class Form1 : Form
         startButton.Enabled = true;
         stopButton.Enabled = false;
         deviceComboBox.Enabled = true;
-        statusLabel.Text = "訊號：已停止";
+        statusLabel.Text = "狀態：已停止";
     }
 
     /// <summary>
@@ -196,17 +211,29 @@ public partial class Form1 : Form
 
         ringBuffer.Write(samples);
 
-        int peak = 0;
+        float peakLinear = 0f;
+        double sumSquares = 0d;
+
         for (int i = 0; i < samples.Length; i++)
         {
-            int value = Math.Abs(samples[i]);
-            if (value > peak)
+            float normalized = samples[i] / 32768f;
+            float abs = MathF.Abs(normalized);
+            if (abs > peakLinear)
             {
-                peak = value;
+                peakLinear = abs;
             }
+
+            sumSquares += normalized * normalized;
         }
 
-        Volatile.Write(ref lastPeak, peak);
+        float rmsLinear = MathF.Sqrt((float)(sumSquares / sampleCount));
+        float peakDbfs = ToDbfs(peakLinear);
+        float rmsDbfs = ToDbfs(rmsLinear);
+        RecordingQuality quality = EvaluateQuality(peakDbfs, rmsDbfs);
+
+        Volatile.Write(ref lastPeakDbfs, peakDbfs);
+        Volatile.Write(ref lastRmsDbfs, rmsDbfs);
+        Volatile.Write(ref lastQuality, (int)quality);
     }
 
     /// <summary>
@@ -225,16 +252,54 @@ public partial class Form1 : Form
     }
 
     /// <summary>
-    /// 依峰值門檻更新訊號指示。
-    /// 門檻值刻意偏保守，可降低環境噪音造成的誤判。
+    /// 更新 Peak / RMS 以及錄音品質狀態。
+    /// 以 dBFS 呈現可直接反映與數位滿刻度的距離。
     /// </summary>
-    private void UpdateSignalIndicator()
+    private void UpdateLevelIndicator()
     {
-        int peak = Volatile.Read(ref lastPeak);
-        bool hasSignal = peak >= SignalThreshold;
+        float peakDbfs = Volatile.Read(ref lastPeakDbfs);
+        float rmsDbfs = Volatile.Read(ref lastRmsDbfs);
+        RecordingQuality quality = (RecordingQuality)Volatile.Read(ref lastQuality);
 
-        statusLabel.Text = hasSignal ? "訊號：有" : "訊號：無";
-        statusLabel.ForeColor = hasSignal ? Color.LimeGreen : Color.DarkRed;
+        peakLabel.Text = $"Peak：{peakDbfs:F1} dBFS";
+        rmsLabel.Text = $"RMS：{rmsDbfs:F1} dBFS";
+
+        switch (quality)
+        {
+            case RecordingQuality.ClippingRisk:
+                statusLabel.Text = "狀態：Clipping";
+                statusLabel.ForeColor = Color.OrangeRed;
+                break;
+            case RecordingQuality.Optimal:
+                statusLabel.Text = "狀態：Optimal";
+                statusLabel.ForeColor = Color.LimeGreen;
+                break;
+            default:
+                statusLabel.Text = "狀態：Too Quiet";
+                statusLabel.ForeColor = Color.DarkRed;
+                break;
+        }
+    }
+
+    private static RecordingQuality EvaluateQuality(float peakDbfs, float rmsDbfs)
+    {
+        if (peakDbfs >= ClippingPeakDbfs)
+        {
+            return RecordingQuality.ClippingRisk;
+        }
+
+        if (rmsDbfs < TooQuietRmsDbfs)
+        {
+            return RecordingQuality.TooQuiet;
+        }
+
+        return RecordingQuality.Optimal;
+    }
+
+    private static float ToDbfs(float linear)
+    {
+        float safe = MathF.Max(linear, 1e-9f);
+        return MathF.Max(20f * MathF.Log10(safe), MinDbfs);
     }
 
     /// <summary>
